@@ -1,12 +1,15 @@
+from datetime import datetime
+
 from fastapi import HTTPException
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import DBCity
-from app.schemas import CityCreate, City
+from app.models import DBCity, DBTemperature
+from app.schemas import CityCreate
+from app.utills import fetch_temperature
 
 
-async def get_all_cities(db: AsyncSession, skip: int = 0, limit: int = 10):
+async def get_all_cities(db: AsyncSession, skip: int = 0, limit: int = 100):
     result = await db.execute(select(DBCity).offset(skip).limit(limit))
     return result.scalars().all()
 
@@ -57,3 +60,36 @@ async def delete_city_by_id(db: AsyncSession, city_id: int):
     await db.commit()
 
     return existing_city
+
+
+async def update_all_temperatures(db: AsyncSession):
+    cities = await get_all_cities(db)
+
+    for city in cities:
+        try:
+            temperature = await fetch_temperature(city.name)
+            new_record = DBTemperature(
+                city_id=city.id,
+                temperature=temperature,
+                date_time=datetime.now()
+            )
+            db.add(new_record)
+            await db.flush()
+        except Exception as e:
+            print(f"Failed to fetch and record temperature for {city.name}: {e}")
+    await db.commit()
+
+
+async def get_all_temperatures(db: AsyncSession):
+    result = await db.execute(select(DBTemperature))
+    return result.scalars().all()
+
+
+async def get_temperatures_by_city(db: AsyncSession, city_id: int):
+    result = await db.execute(select(DBTemperature).where(DBTemperature.city_id == city_id))
+    temperatures = result.scalars().all()
+
+    if not temperatures:
+        raise HTTPException(status_code=404, detail="No temperature records found for the specified city.")
+
+    return temperatures
